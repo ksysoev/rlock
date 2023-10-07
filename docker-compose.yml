@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  tests:
+    build: ./
+    volumes:
+      - .:/go/src/app
+    working_dir: /go/src/app
+    command: go test -race -v ./...
+    environment:
+      - TEST_REDIS_HOST=redis
+      - TEST_REDIS_PORT=6379
+    depends_on:
+      - redis
+  redis:
+    image: docker.io/bitnami/redis:7.0
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - '6379:6379'
