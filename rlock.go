@@ -6,44 +6,45 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
+
+var releaseLock = redis.NewScript(`
+if redis.call("get",KEYS[1]) == ARGV[1] then
+    return redis.call("del",KEYS[1])
+else
+    return 0
+end
+`)
 
 // ReleaseSignal is a type alias for a string that represents a signal to release a lock.
 type ReleaseSignal string
 
-// RedisStore is an interface that defines the Redis commands used by the Locker.
-type RedisStore interface {
-	// SetNX sets the value of a key, only if the key does not exist.
-	// It returns true if the key was set, false otherwise.
-	SetNX(ctx context.Context, key string, value any, ttl time.Duration) *redis.BoolCmd
-	// Del deletes one or more keys.
-	// It returns the number of keys that were deleted.
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-}
-
 // Locker is a struct that represents a distributed lock manager.
 type Locker struct {
-	storage   RedisStore
+	storage   *redis.Client
 	nameSpace string
 	ctx       context.Context
 }
 
 // Lock is a struct that represents a distributed lock.
 type Lock struct {
+	id       string
 	isLocked bool
 	key      string
 	locker   *Locker
 }
 
 // NewLocker creates a new Locker instance.
-func NewLocker(ctx context.Context, storage RedisStore) *Locker {
+func NewLocker(ctx context.Context, storage *redis.Client) *Locker {
 	return &Locker{ctx: ctx, storage: storage}
 }
 
 // TryAcquire tries to acquire a lock for the given key with the specified time-to-live (TTL).
 func (l *Locker) TryAcquire(key string, ttl time.Duration) (*Lock, error) {
-	success, err := l.storage.SetNX(l.ctx, l.nameSpace+key, "1", ttl).Result()
+	id := uuid.NewString()
+	success, err := l.storage.SetNX(l.ctx, l.nameSpace+key, id, ttl).Result()
 
 	if err != nil {
 		return nil, err
@@ -53,25 +54,25 @@ func (l *Locker) TryAcquire(key string, ttl time.Duration) (*Lock, error) {
 		return nil, fmt.Errorf("can't acquire lock")
 	}
 
-	return newLock(key, l), nil
+	return newLock(key, l, id), nil
 }
 
 // release releases the lock for the given key.
-func (l *Locker) release(key string) error {
-	_, err := l.storage.Del(l.ctx, l.nameSpace+key).Result()
+func (l *Locker) release(key string, id string) error {
+	_, err := releaseLock.Run(l.ctx, l.storage, []string{l.nameSpace + key}, id).Int()
 	return err
 }
 
 // newLock creates a new Lock instance.
-func newLock(key string, locker *Locker) *Lock {
-	return &Lock{isLocked: true, key: key, locker: locker}
+func newLock(key string, locker *Locker, id string) *Lock {
+	return &Lock{isLocked: true, key: key, locker: locker, id: id}
 }
 
 // Release releases the lock.
 // If the lock is already released, it returns an error.
 func (l *Lock) Release() error {
 	if l.isLocked {
-		err := l.locker.release(l.key)
+		err := l.locker.release(l.key, l.id)
 
 		if err != nil {
 			return err
