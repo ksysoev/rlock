@@ -43,6 +43,7 @@ type Lock struct {
 	isLocked bool
 	key      string
 	locker   *Locker
+	ttl      time.Duration
 }
 
 // NewLocker creates a new Locker instance.
@@ -63,17 +64,17 @@ func (l *Locker) TryAcquire(key string, ttl time.Duration) (*Lock, error) {
 		return nil, fmt.Errorf("can't acquire lock")
 	}
 
-	return newLock(key, l, id), nil
+	return newLock(key, l, id, ttl), nil
 }
 
 // release releases the lock for the given key.
-func (l *Locker) release(key string, id string) error {
-	_, err := releaseLock.Run(l.ctx, l.storage, []string{l.nameSpace + key}, id).Int()
+func (l *Locker) release(lock *Lock) error {
+	_, err := releaseLock.Run(l.ctx, l.storage, []string{l.nameSpace + lock.key}, lock.id).Int()
 	return err
 }
 
-func (l *Locker) refresh(key string, id string, duration time.Duration) (bool, error) {
-	res, err := refreshLock.Run(l.ctx, l.storage, []string{l.nameSpace + key}, id, duration.Abs().Milliseconds()).Int()
+func (l *Locker) refresh(lock *Lock) (bool, error) {
+	res, err := refreshLock.Run(l.ctx, l.storage, []string{l.nameSpace + lock.key}, lock.id, lock.ttl.Abs().Milliseconds()).Int()
 
 	if err != nil {
 		return false, err
@@ -87,15 +88,15 @@ func (l *Locker) refresh(key string, id string, duration time.Duration) (bool, e
 }
 
 // newLock creates a new Lock instance.
-func newLock(key string, locker *Locker, id string) *Lock {
-	return &Lock{isLocked: true, key: key, locker: locker, id: id}
+func newLock(key string, locker *Locker, id string, ttl time.Duration) *Lock {
+	return &Lock{isLocked: true, key: key, locker: locker, id: id, ttl: ttl}
 }
 
 // Release releases the lock.
 // If the lock is already released, it returns an error.
 func (l *Lock) Release() error {
 	if l.isLocked {
-		err := l.locker.release(l.key, l.id)
+		err := l.locker.release(l)
 
 		if err != nil {
 			return err
@@ -108,8 +109,8 @@ func (l *Lock) Release() error {
 	return fmt.Errorf("lock is already released")
 }
 
-func (l *Lock) TryRefresh(ttl time.Duration) error {
-	res, err := l.locker.refresh(l.key, l.id, ttl)
+func (l *Lock) TryRefresh() error {
+	res, err := l.locker.refresh(l)
 
 	if err != nil {
 		return err

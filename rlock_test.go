@@ -105,7 +105,7 @@ func TestTryRefreshLock(t *testing.T) {
 		t.Error("Expected lock to be released, but it's not")
 	}
 
-	err = lock.TryRefresh(1 * time.Second)
+	err = lock.TryRefresh()
 	defer lock.Release()
 
 	if err != nil {
@@ -150,7 +150,7 @@ func TestTryRefreshLockFail(t *testing.T) {
 		t.Error("Expected to get no error, but got: ", err)
 	}
 
-	err = lock.TryRefresh(1 * time.Second)
+	err = lock.TryRefresh()
 	if err == nil || err.Error() != "lock is overtaken" {
 		t.Error("Expected to get error with message 'lock is overtaken', but got: ", err)
 	}
