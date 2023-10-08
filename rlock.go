@@ -18,8 +18,17 @@ else
 end
 `)
 
-// ReleaseSignal is a type alias for a string that represents a signal to release a lock.
-type ReleaseSignal string
+var refreshLock = redis.NewScript(`
+local k, i, t = KEYS[1], ARGV[1], ARGV[2]
+if redis.call("EXISTS", k) == 0 then 
+	redis.call("SET",k, i, "PX", t)
+	return 1
+elseif (redis.call("GET",k) == i) then
+	return redis.call("PEXPIRE",k, t)
+else
+    return 0
+end
+`)
 
 // Locker is a struct that represents a distributed lock manager.
 type Locker struct {
@@ -63,6 +72,20 @@ func (l *Locker) release(key string, id string) error {
 	return err
 }
 
+func (l *Locker) refresh(key string, id string, duration time.Duration) (bool, error) {
+	res, err := refreshLock.Run(l.ctx, l.storage, []string{l.nameSpace + key}, id, duration.Abs().Milliseconds()).Int()
+
+	if err != nil {
+		return false, err
+	}
+
+	if res == 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // newLock creates a new Lock instance.
 func newLock(key string, locker *Locker, id string) *Lock {
 	return &Lock{isLocked: true, key: key, locker: locker, id: id}
@@ -83,6 +106,22 @@ func (l *Lock) Release() error {
 	}
 
 	return fmt.Errorf("lock is already released")
+}
+
+func (l *Lock) Refresh(ttl time.Duration) error {
+	res, err := l.locker.refresh(l.key, l.id, ttl)
+
+	if err != nil {
+		return err
+	}
+
+	l.isLocked = res
+
+	if !res {
+		return fmt.Errorf("lock is overtaken")
+	}
+
+	return nil
 }
 
 // IsLocked returns true if the lock is still held, false otherwise.

@@ -84,3 +84,33 @@ func TestReleseLock(t *testing.T) {
 		t.Error("Expected to get no error, but got: ", err)
 	}
 }
+
+func TestRefreshLock(t *testing.T) {
+	redisClient := redis.NewClient(getRedisOptions())
+
+	l := NewLocker(context.Background(), redisClient)
+
+	lock, err := l.TryAcquire("TestRefreshLock", 1*time.Second)
+
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+	}
+
+	err = lock.Release()
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+	}
+
+	err = lock.Refresh(1 * time.Second)
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+	}
+
+	_, err = l.TryAcquire("TestRefreshLock", 1*time.Second)
+
+	if err == nil {
+		t.Error("Expected to get error, but got nil")
+	} else if err.Error() != "can't acquire lock" {
+		t.Error("Expected to get error with message 'can't acquire lock', but got: ", err)
+	}
+}
