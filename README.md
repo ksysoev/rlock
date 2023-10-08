@@ -6,7 +6,7 @@ rlock is a Redis-based distributed locking library for Go. It provides a simple 
 To install rlock, use `go get`:
 
 ```sh
-go get github.com/redis/rlock
+go get github.com/ksysoev/redis-lock
 ```
 
 ## Usage
@@ -33,7 +33,6 @@ if err != nil {
 ## Contributing
 
 Contributions to rlock are welcome!
-
 
 ## License
 
