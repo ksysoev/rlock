@@ -108,7 +108,7 @@ func (l *Lock) Release() error {
 	return fmt.Errorf("lock is already released")
 }
 
-func (l *Lock) Refresh(ttl time.Duration) error {
+func (l *Lock) TryRefresh(ttl time.Duration) error {
 	res, err := l.locker.refresh(l.key, l.id, ttl)
 
 	if err != nil {
