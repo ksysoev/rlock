@@ -113,7 +113,7 @@ func TestTryRefreshLock(t *testing.T) {
 	}
 
 	if !lock.isLocked {
-		t.Error("Expected lock to be aquired, but it's not")
+		t.Error("Expected lock to be Acquired, but it's not")
 	}
 
 	_, err = l.TryAcquire("TestTryRefreshLock", 1*time.Second)
@@ -157,5 +157,82 @@ func TestTryRefreshLockFail(t *testing.T) {
 
 	if lock.isLocked {
 		t.Error("Expected lock to be released, but it's not")
+	}
+}
+
+func TestAcquireLock(t *testing.T) {
+	redisClient := redis.NewClient(getRedisOptions())
+
+	l := NewLocker(context.Background(), redisClient)
+
+	lock, err := l.Acquire("TestAcquireLock", 1*time.Second, 1*time.Second)
+
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+		return
+	}
+
+	if !lock.isLocked {
+		t.Error("Expected to get locked lock, but it's not")
+	}
+	lock.Release()
+}
+
+func TestAcquireLockAttemptsSuccess(t *testing.T) {
+	redisClient := redis.NewClient(getRedisOptions())
+
+	l := NewLocker(context.Background(), redisClient).SetInitialInterval(10 * time.Millisecond)
+
+	lock, err := l.TryAcquire("TestAcquireLockAttemptsSuccess", 9*time.Millisecond)
+
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+		return
+	}
+
+	if !lock.isLocked {
+		t.Error("Expected to get locked lock, but it's not")
+	}
+	defer lock.Release()
+
+	newLock, err := l.Acquire("TestAcquireLockAttemptsSuccess", 1*time.Second, 50*time.Millisecond)
+
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+		return
+	}
+
+	if !newLock.isLocked {
+		t.Error("Expected to get locked lock, but it's not")
+	}
+	newLock.Release()
+}
+
+func TestAcquireLockAttemptsTimeout(t *testing.T) {
+	redisClient := redis.NewClient(getRedisOptions())
+
+	l := NewLocker(context.Background(), redisClient).SetInitialInterval(10 * time.Millisecond)
+
+	lock, err := l.TryAcquire("TestAcquireLockAttemptsTimeout", 50*time.Millisecond)
+
+	if err != nil {
+		t.Error("Expected to get no error, but got: ", err)
+		return
+	}
+
+	if !lock.isLocked {
+		t.Error("Expected to get locked lock, but it's not")
+	}
+
+	newLock, err := l.Acquire("TestAcquireLockAttemptsTimeout", 1*time.Second, 10*time.Millisecond)
+
+	if err == nil || err.Error() != "can't acquire lock" {
+		t.Error("Expected to get error with message 'lock is overtaken', but got: ", err)
+		return
+	}
+
+	if newLock != nil && newLock.isLocked {
+		t.Error("Expected lock to be released, but it's not")
+		newLock.Release()
 	}
 }

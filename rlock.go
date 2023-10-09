@@ -6,8 +6,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+)
+
+const (
+	// DefaultNameSpace is the default namespace for locks.
+	DefaultNameSpace       = "rlock:"
+	DefaultMaxInterval     = 5 * time.Second
+	DefaultInitialInterval = 500 * time.Millisecond
 )
 
 var releaseLock = redis.NewScript(`
@@ -32,9 +40,11 @@ end
 
 // Locker is a struct that represents a distributed lock manager.
 type Locker struct {
-	storage   *redis.Client
-	nameSpace string
-	ctx       context.Context
+	storage         *redis.Client
+	nameSpace       string
+	ctx             context.Context
+	MaxInterval     time.Duration
+	InitialInterval time.Duration
 }
 
 // Lock is a struct that represents a distributed lock.
@@ -48,7 +58,26 @@ type Lock struct {
 
 // NewLocker creates a new Locker instance.
 func NewLocker(ctx context.Context, storage *redis.Client) *Locker {
-	return &Locker{ctx: ctx, storage: storage}
+	return &Locker{
+		ctx:             ctx,
+		storage:         storage,
+		MaxInterval:     DefaultMaxInterval,
+		InitialInterval: DefaultInitialInterval}
+}
+
+func (l *Locker) SetNameSpace(nameSpace string) *Locker {
+	l.nameSpace = nameSpace
+	return l
+}
+
+func (l *Locker) SetMaxInterval(maxInterval time.Duration) *Locker {
+	l.MaxInterval = maxInterval
+	return l
+}
+
+func (l *Locker) SetInitialInterval(initialInterval time.Duration) *Locker {
+	l.InitialInterval = initialInterval
+	return l
 }
 
 // TryAcquire tries to acquire a lock for the given key with the specified time-to-live (TTL).
@@ -65,6 +94,38 @@ func (l *Locker) TryAcquire(key string, ttl time.Duration) (*Lock, error) {
 	}
 
 	return newLock(key, l, id, ttl), nil
+}
+
+func (l *Locker) Acquire(key string, ttl time.Duration, timeout time.Duration) (*Lock, error) {
+	id := uuid.NewString()
+
+	context, _ := context.WithTimeout(l.ctx, timeout)
+
+	backoff := backoff.NewExponentialBackOff()
+	backoff.MaxElapsedTime = l.MaxInterval
+	backoff.InitialInterval = l.InitialInterval
+	backoff.Reset()
+	for {
+
+		success, err := l.storage.SetNX(l.ctx, l.nameSpace+key, id, ttl).Result()
+
+		if err != nil {
+			return nil, err
+		}
+
+		if success {
+			return newLock(key, l, id, ttl), nil
+		}
+
+		intr := backoff.NextBackOff()
+
+		select {
+		case <-context.Done():
+			return nil, fmt.Errorf("can't acquire lock")
+		case <-time.After(intr):
+			continue
+		}
+	}
 }
 
 // release releases the lock for the given key.
