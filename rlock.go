@@ -21,6 +21,10 @@ const (
 )
 
 // releaseLock is a Lua script that releases the lock.
+// Functions accepts 1 key and 1 argument:
+// - key: the key of the lock.
+// - argument 1: the unique ID of the lock.
+// It returns 1 if the lock was successfully released, otherwise it returns 0.
 var releaseLock = redis.NewScript(`
 if redis.call("get",KEYS[1]) == ARGV[1] then
     return redis.call("del",KEYS[1])
@@ -30,12 +34,17 @@ end
 `)
 
 // refreshLock is a Lua script that refreshes the expiration time of a lock.
+// Functions accepts 1 key and 2 arguments:
+// - key: the key of the lock.
+// - argument 1: the unique ID of the lock.
+// - argument 2: the time-to-live (TTL) of the lock.
+// It returns 1 if the lock was successfully refreshed, otherwise it returns 0.
 var refreshLock = redis.NewScript(`
 local k, i, t = KEYS[1], ARGV[1], ARGV[2]
 if redis.call("EXISTS", k) == 0 then 
 	redis.call("SET",k, i, "PX", t)
 	return 1
-elseif (redis.call("GET",k) == i) then
+elseif redis.call("GET",k) == i then
 	return redis.call("PEXPIRE",k, t)
 else
     return 0
