@@ -6,7 +6,7 @@ rlock is a Redis-based distributed locking library for Go. It provides a simple 
 To install rlock, use `go get`:
 
 ```sh
-go get github.com/ksysoev/redis-lock
+go get github.com/ksysoev/rlock
 ```
 
 ## Usage
@@ -19,15 +19,15 @@ l := rlock.NewLocker(context.Background(), redisClient)
 
 lock, err := l.TryAcquire("my-lock", 1*time.Second)
 if err != nil {
-    // handle error
+    fmt.Println("Unable to acquire lock:", err)
 }
 
-// do some work while holding the lock
-
-err = lock.Release()
+// It'll wait untill lock will be relesed or timeout is reach. 
+lock1, err := l.Acquire("my-lock", 1*time.Second, 2*time.Second)
 if err != nil {
-    // handle error
+    fmt.Println("Unable to acquire lock:", err)
 }
+defer lock1.Release()
 ```
 
 ## Contributing

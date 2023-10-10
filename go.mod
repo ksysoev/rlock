@@ -1,4 +1,4 @@
-module github.com/ksysoev/redis-lock
+module github.com/ksysoev/rlock
 
 go 1.21
 
