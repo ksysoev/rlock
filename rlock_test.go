@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -234,5 +236,34 @@ func TestAcquireLockAttemptsTimeout(t *testing.T) {
 	if newLock != nil && newLock.isLocked {
 		t.Error("Expected lock to be released, but it's not")
 		newLock.Release()
+	}
+}
+
+func TestTryAcquireConcurrenty(t *testing.T) {
+	redisClient := redis.NewClient(getRedisOptions())
+
+	l := NewLocker(context.Background(), redisClient)
+
+	var counter atomic.Uint64
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			lock, err := l.TryAcquire("TestTryAcquireConcurrenty", 50*time.Millisecond)
+
+			if err == nil {
+				counter.Add(1)
+				time.Sleep(50 * time.Millisecond)
+				defer lock.Release()
+			}
+
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+
+	if counter.Load() != 1 {
+		t.Error("Expected to get only one lock, but got: ", counter.Load())
 	}
 }
